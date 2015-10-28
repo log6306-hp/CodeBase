@@ -15,6 +15,8 @@
  */
 package com.netflix.asgard
 
+///We successfully removed the LongMethod code smell from this code.
+
 import com.netflix.asgard.model.GroupedInstance
 import com.netflix.asgard.push.Cluster
 import com.netflix.asgard.server.Environment
@@ -98,12 +100,7 @@ class ServerService implements InitializingBean {
 
     SwitchAttemptResult moveTrafficTo(String targetServerName, String forceNowValue = null) {
 
-        String forceCodeForThisHour = nowYearMonthDayHour()
-        if (forceNowValue && forceNowValue != forceCodeForThisHour) {
-            List<String> messages = ['Error: wrong forceNow URL parameter value.',
-                    "Remove forceNow for safety or use forceNow=${forceCodeForThisHour}"]
-            return new SwitchAttemptResult(false, messages)
-        }
+        String forceCodeForThisHour = checkSwitchAttemptResult()
 
         // Is the target server one of the known servers whose traffic we can control?
         if (!allServerNames.contains(targetServerName)) {
@@ -119,15 +116,7 @@ class ServerService implements InitializingBean {
         Boolean moveTrafficDespiteSafetyRules = forceNowValue == forceCodeForThisHour
 
         // Has the traffic switch already happened?
-        String currentInUseServerName = determineActiveServerName(env)
-        Boolean trafficIsAlreadyMoved = currentInUseServerName == targetServerName
-        if (trafficIsAlreadyMoved && !moveTrafficDespiteSafetyRules) {
-            List<String> messages = [
-                    "Aborted because ${env.canonicalDnsName} is already pointing to ${targetServerName}",
-                    "Add URL parameter forceNow=${forceCodeForThisHour} to move traffic anyway"
-            ]
-            return new SwitchAttemptResult(true, messages)
-        }
+        String currentInUseServerName = checkSwitchInCaseOFTraffic(env, targetServerName, forceCodeForThisHour)
 
         // Is the target server healthy enough for traffic?
         Boolean targetServerIsHealthy = checkHealth(targetServer)
@@ -145,24 +134,51 @@ class ServerService implements InitializingBean {
 
         Boolean okayToMoveTraffic = moveTrafficDespiteSafetyRules || switchingFromSickOrIdleServerToHealthyServer
 
-        if (okayToMoveTraffic) {
-            String enableCommand = targetServer.enableCommand
-            String disableCommand = sisterServer.disableCommand
-
-            sendCommandToLoadBalancer enableCommand
-            sendCommandToLoadBalancer disableCommand
-            List<String> messages = [enableCommand, disableCommand]
-            return new SwitchAttemptResult(true, messages)
-        } else {
-            List<String> messages = [
-                    "Cancelled moving traffic from ${currentInUseServerName} to ${targetServerName}",
-                    "${sisterServer.name} has health=${sisterServerIsHealthy} tasks=${sisterServerTaskCount}",
-                    "${targetServerName} has health=${targetServerIsHealthy}",
-                    "Add URL parameter forceNow=${forceCodeForThisHour} to move traffic anyway"
-            ]
-            return new SwitchAttemptResult(false, messages)
-        }
+        decideToMove(targetServer, sisterServer, currentInUseServerName, targetServerName, sisterServerIsHealthy, sisterServerTaskCount, targetServerIsHealthy, forceCodeForThisHour)
     }
+
+	private decideToMove(Server targetServer, Server sisterServer, String currentInUseServerName, String targetServerName, Boolean sisterServerIsHealthy, Integer sisterServerTaskCount, Boolean targetServerIsHealthy, String forceCodeForThisHour) {
+		if (okayToMoveTraffic) {
+			String enableCommand = targetServer.enableCommand
+			String disableCommand = sisterServer.disableCommand
+
+			sendCommandToLoadBalancer enableCommand
+			sendCommandToLoadBalancer disableCommand
+			List<String> messages = [enableCommand, disableCommand]
+			return new SwitchAttemptResult(true, messages)
+		} else {
+			List<String> messages = [
+				"Cancelled moving traffic from ${currentInUseServerName} to ${targetServerName}",
+				"${sisterServer.name} has health=${sisterServerIsHealthy} tasks=${sisterServerTaskCount}",
+				"${targetServerName} has health=${targetServerIsHealthy}",
+				"Add URL parameter forceNow=${forceCodeForThisHour} to move traffic anyway"
+			]
+			return new SwitchAttemptResult(false, messages)
+		}
+	}
+
+	private String checkSwitchInCaseOFTraffic(Environment env, String targetServerName, String forceCodeForThisHour) {
+		String currentInUseServerName = determineActiveServerName(env)
+		Boolean trafficIsAlreadyMoved = currentInUseServerName == targetServerName
+		if (trafficIsAlreadyMoved && !moveTrafficDespiteSafetyRules) {
+			List<String> messages = [
+				"Aborted because ${env.canonicalDnsName} is already pointing to ${targetServerName}",
+				"Add URL parameter forceNow=${forceCodeForThisHour} to move traffic anyway"
+			]
+			return new SwitchAttemptResult(true, messages)
+		}
+		return currentInUseServerName
+	}
+
+	private String checkSwitchAttemptResult() {
+		String forceCodeForThisHour = nowYearMonthDayHour()
+		if (forceNowValue && forceNowValue != forceCodeForThisHour) {
+			List<String> messages = ['Error: wrong forceNow URL parameter value.',
+				"Remove forceNow for safety or use forceNow=${forceCodeForThisHour}"]
+			return new SwitchAttemptResult(false, messages)
+		}
+		return forceCodeForThisHour
+	}
 
     private static final DateTimeFormatter YEAR_MONTH_DAY_HR = new DateTimeFormatterBuilder().appendYear(4, 4).
             appendLiteral('-').appendMonthOfYear(2).appendLiteral('-').appendDayOfMonth(2).appendLiteral('-').
