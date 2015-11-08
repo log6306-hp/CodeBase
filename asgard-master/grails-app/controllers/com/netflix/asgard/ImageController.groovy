@@ -163,57 +163,8 @@ class ImageController {
     }
 
     def launch() {
-
-        String message = ''
-        Closure output = { }
-        List<String> instanceIds = []
-        List<String> spotInstanceRequestIds = []
-
-        try {
-            UserContext userContext = UserContext.of(request)
-            String pricing = params.pricing
-            String pricingMissingMessage = 'Missing required parameter pricing=spot or pricing=ondemand'
-            Check.condition(pricingMissingMessage, { pricing in ['ondemand', 'spot'] })
-            String imageId = EntityType.image.ensurePrefix(params.imageId)
-            String owner = Check.notEmpty(params.owner as String, 'owner')
-            String zone = params.zone
-            String instanceType = params.instanceType
-            List<String> rawSecurityGroups = Requests.ensureList(params.selectedGroups)
-            Collection<String> securityGroups = launchTemplateService.
-                includeDefaultSecurityGroupsForNonVpc(rawSecurityGroups)
-            Integer count = 1
-            if (pricing == 'ondemand') {
-                List<Instance> launchedInstances = imageService.runOnDemandInstances(userContext, imageId, count,
-                        securityGroups, instanceType, zone, owner)
-                instanceIds = launchedInstances*.instanceId
-                message = "Image '${imageId}' has been launched as ${instanceIds}"
-                output = { instances { instanceIds.each { instance(it) } } }
-            } else {
-                List<SpotInstanceRequest> sirs = imageService.requestSpotInstances(userContext, imageId, count,
-                        securityGroups, instanceType, zone, owner)
-                spotInstanceRequestIds = sirs*.spotInstanceRequestId
-                message = "Image '${imageId}' has been used to create Spot Instance Request ${spotInstanceRequestIds}"
-                output = { spotInstanceRequests { spotInstanceRequestIds.each { spotInstanceRequest(it) } } }
-            }
-        } catch (Exception e) {
-            message = "Could not launch Image: ${e}"
-            output = { error(message) }
-        }
-
-        withFormat {
-            form {
-                flash.message = message
-                Map redirectParams = [action: 'result']
-                if (instanceIds) {
-                    redirectParams = [controller: 'instance', action: 'show', id: instanceIds[0]]
-                } else if (spotInstanceRequestIds) {
-                    redirectParams = [controller: 'spotInstanceRequest', action: 'show', id: spotInstanceRequestIds[0]]
-                }
-                redirect(redirectParams)
-            }
-            xml { render(contentType: 'application/xml', output) }
-            json { render(contentType: 'application/json', output) }
-        }
+        ImageControllerHelper imgH = new ImageControllerHelper()
+		imgH.getLaunchFormat(imageService, launchTemplateService)
     }
 
     def result() {
@@ -327,78 +278,13 @@ class ImageController {
         render "<pre>\n${message}</pre>\n"
     }
 
+	
     def analyze() {
-        UserContext userContext = UserContext.of(request)
-        Collection<Image> allImages = awsEc2Service.getAccountImages(userContext)
-        List<Image> dateless = []
-        List<Image> baseless = []
-        List<Image> baselessInUse = []
-
-        Set<String> amisInUse = [] as Set
-        Map<String, List<MergedInstance>> imageIdsToInstanceLists = [:]
-        List<MergedInstance> instances = mergedInstanceGroupingService.getMergedInstances(userContext, '')
-        instances.each { MergedInstance instance ->
-            if (instance.amiId) {
-                String amiId = instance.amiId
-                amisInUse << amiId
-
-                List<MergedInstance> instancesForAmi = imageIdsToInstanceLists.get(amiId)
-                if (instancesForAmi) {
-                    instancesForAmi.add(instance)
-                } else {
-                    imageIdsToInstanceLists.put(amiId, [instance])
-                }
-            }
-        }
-
-        allImages.each { Image image ->
-            // Look through all images and read descriptions looking for base AMIs and ancestors.
-            if (!image.baseAmiId) { baseless << image }
-            if (!image.creationTime) { dateless << image }
-        }
-
-        Map<String> deregisteredAmisToInstanceAsgs = [:]
-
-        List<Image> inUseImages = []
-        imageIdsToInstanceLists.keySet().each { String inUseAmiId ->
-            Image inUseImage = allImages.find { Image im -> im.imageId == inUseAmiId }
-            if (inUseImage) {
-                inUseImages << inUseImage
-            } else {
-                deregisteredAmisToInstanceAsgs.put(inUseAmiId,
-                    imageIdsToInstanceLists[inUseAmiId].collect {
-                        MergedInstance inst-> new Expando('instance': inst, 'groupName': inst.autoScalingGroupName)
-                    }
-                )
-            }
-        }
-        inUseImages = inUseImages.sort { it.baseAmiDate }
-
-        Map<String, List<Image>> appVersionsToImageLists = [:]
-        inUseImages.each { Image image ->
-            if (image.appVersion) {
-                List<Image> imageList = appVersionsToImageLists[image.appVersion] ?: []
-                imageList << image
-                appVersionsToImageLists[image.appVersion] = imageList
-            }
-        }
-        appVersionsToImageLists = appVersionsToImageLists.sort().sort { a, b -> b.value.size() <=> a.value.size() }
-
-        baseless.each { Image image ->
-            if (imageIdsToInstanceLists.keySet().contains(image.imageId)) {
-                baselessInUse << image
-            }
-        }
-
-        Map details = [
-                'dateless': dateless,
-                'baseless': baseless,
-                'baselessInUse': baselessInUse,
-                'inUseImages': inUseImages,
-                'appVersionsToImageLists': appVersionsToImageLists,
-                'imageIdsToInstanceLists': imageIdsToInstanceLists,
-                'deregisteredAmisToInstanceAsgs': deregisteredAmisToInstanceAsgs
-        ]
+		
+		ImageControllerHelper imgHlpr = new ImageControllerHelper(awsEc2Service_, mergedInstanceGroupingService_)
+		
+		def details = imgHlpr.getDetailMap()
+		
         withFormat {
             html { details }
             xml { new XML(details).render(response) }
@@ -418,52 +304,4 @@ class ImageController {
     }
 }
 
-class ImageDeleteCommand {
-    String id
-    AwsAutoScalingService awsAutoScalingService
-    AwsEc2Service awsEc2Service
-    RestClientService restClientService
-    ConfigService configService
-    def grailsApplication
 
-    @SuppressWarnings("GroovyAssignabilityCheck")
-    static constraints = {
-        id(nullable: false, blank: false, size: 12..12, validator: { String value, ImageDeleteCommand command ->
-            UserContext userContext = UserContext.of(Requests.request)
-            List<String> promotionTargetServerRootUrls = configService.promotionTargetServerRootUrls
-            String promotionTargetServer = command.grailsApplication.config.promote.targetServer
-            String env = command.grailsApplication.config.cloud.accountName
-
-            // If AMI is in use by a launch config or instance in the current region-env then report those references.
-            Collection<String> instances = command.awsEc2Service.
-                    getInstancesUsingImageId(userContext, value).collect { it.instanceId }
-            Collection<String> launchConfigurations = command.awsAutoScalingService.
-                    getLaunchConfigurationsUsingImageId(userContext, value).collect { it.launchConfigurationName }
-            if (instances || launchConfigurations) {
-                String reason = constructReason(instances, launchConfigurations)
-                return ['image.imageId.used', value, env, reason]
-            } else if (promotionTargetServerRootUrls) {
-                // If the AMI is not in use on master server, check promoted data.
-                for (String remoteServer in promotionTargetServerRootUrls) {
-                    String url = "${remoteServer}/${userContext.region}/image/references/${value}"
-                    JSONElement json = command.restClientService.getAsJson(url)
-                    if (json == null) {
-                        return ['image.imageId.remoteInaccessible', value, url]
-                    }
-                    Collection<String> remoteInstances = json.instances
-                    Collection<String> remoteLaunchConfigurations = json.launchConfigurations
-                    if (remoteInstances || remoteLaunchConfigurations) {
-                        String reason = constructReason(remoteInstances, remoteLaunchConfigurations)
-                        return ['image.imageId.used', value, remoteServer, reason]
-                    }
-                }
-            }
-            null
-        })
-    }
-
-    static constructReason(Collection<String> instanceIds, Collection<String> launchConfigurationNames) {
-        instanceIds ? "instance${instanceIds.size() == 1 ? '' : 's'} $instanceIds" :
-            "launch configuration${launchConfigurationNames.size() == 1 ? '' : 's'} $launchConfigurationNames"
-    }
-}
