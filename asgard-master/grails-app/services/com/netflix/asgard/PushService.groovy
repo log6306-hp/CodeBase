@@ -139,7 +139,8 @@ class PushService {
         LaunchConfiguration lc = awsAutoScalingService.getLaunchConfiguration(userContext,
                 group.launchConfigurationName)
         String instanceType = lc.instanceType
-        List<ZoneAvailability> zoneAvailabilities = awsEc2Service.getZoneAvailabilities(userContext, instanceType)
+		
+        /*List<ZoneAvailability> zoneAvailabilities = awsEc2Service.getZoneAvailabilities(userContext, instanceType)
         Collection<Image> images = awsEc2Service.getAccountImages(userContext)
         Integer fullCount = images.size()
         Image currentImage = awsEc2Service.getImage(userContext, lc.imageId)
@@ -150,8 +151,13 @@ class PushService {
         Subnets subnets = awsEc2Service.getSubnets(userContext)
         List<SecurityGroup> effectiveSecurityGroups = awsEc2Service.getEffectiveSecurityGroups(userContext)
         String vpcId = subnets.getVpcIdForVpcZoneIdentifier(group.VPCZoneIdentifier)
-        Map<String, String> purposeToVpcId = subnets.mapPurposeToVpcId()
+        Map<String, String> purposeToVpcId = subnets.mapPurposeToVpcId()*/
+		
+		PushServiceHelper ph = new PushServiceHelper(awsEc2Service,userContext,instanceType,group) 
+		Map<String, Object> res = ph.getMapForEditPreparation(lc, instanceType, showAllImages)
+		
         String pricing = lc.spotPrice ? InstancePriceType.SPOT.name() : InstancePriceType.ON_DEMAND.name()
+		
         Map<String, Object> result = [
                 appName: appName,
                 name: name,
@@ -161,15 +167,15 @@ class PushService {
                 terminationPolicy: group.terminationPolicies[0],
 
                 // launch config values: list & selection pairs
-                images: images.sort { it.imageLocation.toLowerCase() },
+                //images: images.sort { it.imageLocation.toLowerCase() },
                 image: lc.imageId,
-                imageListIsShort: imageListIsShort,
+                //imageListIsShort: imageListIsShort,
                 instanceTypes: instanceTypeService.getInstanceTypes(userContext),
                 instanceType: instanceType,
-                zoneAvailabilities: zoneAvailabilities,
-                vpcId: vpcId,
-                purposeToVpcId: purposeToVpcId,
-                securityGroupsGroupedByVpcId: effectiveSecurityGroups.groupBy { it.vpcId },
+                //zoneAvailabilities: zoneAvailabilities,
+                //vpcId: vpcId,
+                //purposeToVpcId: purposeToVpcId,
+                //securityGroupsGroupedByVpcId: effectiveSecurityGroups.groupBy { it.vpcId },
                 selectedSecurityGroups: selectedSecurityGroups ?: lc.securityGroups,
                 defKey: lc.keyName,
                 keys: awsEc2Service.getKeys(userContext).sort { it.keyName.toLowerCase() },
@@ -183,6 +189,8 @@ class PushService {
                 pricing: pricing,
                 spotUrl: configService.spotUrl
         ]
+		result << res
         result
     }
+
 }
