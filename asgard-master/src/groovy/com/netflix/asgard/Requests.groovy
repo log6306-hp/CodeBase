@@ -102,24 +102,31 @@ class Requests {
         if (label) {
             output += "${label} : "
         }
+		
+		
         if (value instanceof Map) {
-            output += '[\n'
-            value.each { k, v -> output += prettyPrint(v, indent + 5, k) }
-            output += "${spaces}]\n"
+			output = RequestsHelper.valueInstanceOfMap(output, spaces, indent, value)
+            //output += '[\n'
+            //value.each { k, v -> output += prettyPrint(v, indent + 5, k) }
+            //output += "${spaces}]\n"
         } else if (value instanceof Collection || value?.class?.array) {
-            output += '[\n'
-            value.each { it -> output += prettyPrint(it, indent + 5) }
-            output += "${spaces}]\n"
+			output = RequestsHelper.valueInstanceOfCollection(output, spaces, indent, value)
+            //output += '[\n'
+            //value.each { it -> output += prettyPrint(it, indent + 5) }
+            //output += "${spaces}]\n"
         } else {
-            if (value?.hasProperty('name') && value?.hasProperty('value')) {
-                output += "${value.name}=${value.value}"
-            } else {
-                output += value
-            }
-            output += ';\n'
+			output = RequestsHelper.notValueInstanceOfCollection(value, output)
+			//if (value?.hasProperty('name') && value?.hasProperty('value')) {
+            //    output += "${value.name}=${value.value}"
+            //} else {
+            //    output += value
+            //}
+            //output += ';\n'
         }
         output
     }
+	
+	
 
     static List<String> ensureList(def stringParam) {
         if (!stringParam) { return [] }
