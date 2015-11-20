@@ -96,7 +96,7 @@ class Requests {
         prettyPrint(props)
     }
 
-    private static String prettyPrint(def value, int indent = 0, String label = null) {
+    public static String prettyPrint(def value, int indent = 0, String label = null) {
         String spaces = ' ' * indent
         String output = spaces
         if (label) {
