@@ -43,8 +43,53 @@ class LocalFileUserDataProvider implements UserDataProvider {
       launchConfigName)
   }
 
+
+static class AssembleUserHelper {
+
+	public static String getAppropriateUDFPaths(String app, String groupName, Region region, String env) {
+		
+		def udfRoot = System.getProperty('userDataRoot') ?: '/apps/nflx-udf'
+		
+		// If there is a matching Ruby file for Windows then it should be the entire User Data string, without any Unix
+		String udfRuby = LocalFileUserDataProvider.getContents("${udfRoot}/custom.d/${app}-${env}.rb")
+		if (udfRuby) {
+		  return udfRuby
+		}
+		
+		String cluster = Relationships.clusterFromGroupName(groupName)
+		String stack = Relationships.stackNameFromGroupName(groupName)
+	
+		// If no Ruby file then get the component Unix shell template files into string lists including custom files for
+		// the app and/or auto scaling group.
+		// If app and group names are identical, only include their UDF file once.
+		
+		// LinkedHashSet ensures correct order and no duplicates when the app, cluster, and groupName are equal.
+		Set<String> udfPaths = new LinkedHashSet<String>()
+		udfPaths << "${udfRoot}/udf0"
+		udfPaths << "${udfRoot}/udf-${env}"
+		udfPaths << "${udfRoot}/udf-${region}-${env}"
+		udfPaths << "${udfRoot}/udf1"
+		udfPaths << "${udfRoot}/custom.d/${app}-${env}"
+		udfPaths << "${udfRoot}/custom.d/${app}-${stack}-${env}"
+		udfPaths << "${udfRoot}/custom.d/${cluster}-${env}"
+		udfPaths << "${udfRoot}/custom.d/${groupName}-${env}"
+		udfPaths << "${udfRoot}/custom.region.d/${region}/${app}-${env}"
+		udfPaths << "${udfRoot}/custom.region.d/${region}/${app}-${stack}-${env}"
+		udfPaths << "${udfRoot}/custom.region.d/${region}/${cluster}-${env}"
+		udfPaths << "${udfRoot}/custom.region.d/${region}/${groupName}-${env}"
+		udfPaths << "${udfRoot}/udf2"
+		
+		// Concat all the Unix shell templates into one string
+		udfPaths.collect { String path -> LocalFileUserDataProvider.getContents(path) }.join('')
+		  
+	  }
+}
+
+								   
   private String assembleUserData(String app, String groupName, Region region, String env) {
-    def udfRoot = System.getProperty('userDataRoot') ?: '/apps/nflx-udf'
+
+	AssembleUserHelper.getAppropriateUDFPaths( app, groupName, region, env)
+/*	def udfRoot = System.getProperty('userDataRoot') ?: '/apps/nflx-udf'
 
     // If there is a matching Ruby file for Windows then it should be the entire User Data string, without any Unix
     String udfRuby = getContents("${udfRoot}/custom.d/${app}-${env}.rb")
@@ -77,9 +122,11 @@ class LocalFileUserDataProvider implements UserDataProvider {
 
     // Concat all the Unix shell templates into one string
     udfPaths.collect { String path -> getContents(path) }.join('')
+*/
+	
   }
 
-  private String getContents(String filePath) {
+  public static String getContents(String filePath) {
     try {
       File file = new File(filePath)
       String contents = file.getText('UTF-8')
