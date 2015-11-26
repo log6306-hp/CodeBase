@@ -32,6 +32,7 @@ import com.netflix.asgard.model.MetricId
 import com.netflix.asgard.model.MetricNamespaces
 import com.netflix.asgard.model.SimpleDbSequenceLocator
 import com.netflix.asgard.retriever.AwsResultsRetriever
+
 import org.springframework.beans.factory.InitializingBean
 
 class AwsCloudWatchService implements CacheInitializer, InitializingBean {
@@ -194,51 +195,74 @@ class AwsCloudWatchService implements CacheInitializer, InitializingBean {
 
     Map<String, ?> prepareForAlarmCreation(UserContext userContext, Map<String, String> params,
             AlarmData alarmData = null) {
-        Collection<String> topicNames = awsSnsService.getTopics(userContext)*.name.sort()
+			
+		Collection<String> topicNames = awsSnsService.getTopics(userContext)*.name.sort()
         String description = params.description ?: alarmData?.description
         String statistic = chooseStatistic(params, alarmData)
         boolean useExistingMetric = !params.namespace && !params.metric
         String existingMetric = params.existingMetric
         MetricNamespaces namespaces = getMetricNamespaces()
-        Set<MetricId> metrics = namespaces.allMetricIds
+        
+		Set<MetricId> metrics = namespaces.allMetricIds
+		
         MetricId currentMetric = null
         if (alarmData) {
             currentMetric = new MetricId(namespace: alarmData.namespace, metricName: alarmData.metricName)
             existingMetric = existingMetric ?: currentMetric?.toJson()
             metrics << currentMetric
         }
-        List<MetricId> sortedMetrics = metrics?.sort()
-        String namespace = chooseNamespace(params, alarmData)
-        List<String> dimensions = namespaces.getDimensionsForNamespace(namespace)
-        String metric = params.metric ?: alarmData?.metricName
-        String comparisonOperator = params.comparisonOperator ?: alarmData?.comparisonOperator
-        String threshold = params.threshold ?: alarmData?.threshold
-        String period = choosePeriod(params, alarmData)
-        String evaluationPeriods = chooseEvaluationPeriods(params, alarmData)
-        String topic = params.topic ?: Check.loneOrNone(alarmData?.topicNames ?: [], String)
-        [
-                comparisonOperators: AlarmData.ComparisonOperator.values(), statistics: AlarmData.Statistic.values(),
-                topics: topicNames, metrics: sortedMetrics, description: description, currentMetric: currentMetric,
-                statistic: statistic, useExistingMetric: useExistingMetric, existingMetric: existingMetric,
-                namespace: namespace, metric: metric, comparisonOperator: comparisonOperator,
-                threshold: threshold, period: period, evaluationPeriods: evaluationPeriods, topic: topic,
-                dimensions: dimensions, dimensionValues: alarmData?.dimensions
+		
+		String namespace = chooseNamespace(params, alarmData)
+		
+		String topic = params.topic ?: Check.loneOrNone(alarmData?.topicNames ?: [], String)
+		def result = [
+				topic: topic,namespace: namespace, statistics: AlarmData.Statistic.values(),topics: topicNames, 
+				description: description, currentMetric: currentMetric,statistic: statistic, 
+				useExistingMetric: useExistingMetric, existingMetric: existingMetric, comparisonOperator: comparisonOperator,
+				dimensionValues: alarmData?.dimensions,metrics: sortedMetrics
         ]
+		
+		result <<  AwsCloudWatchServiceHelper.prepare(metrics,namespaces,namespace,params, alarmData)
     }
 
+static class AwsCloudWatchServiceHelper {
+	
+	 public static Map<?,?> prepare(def metrics,def namespaces,def namespace,def params, def alarmData){
+		 
+		 List<MetricId> sortedMetrics = metrics?.sort()
+		 List<String> dimensions = namespaces.getDimensionsForNamespace(namespace)
+		 String metric = params.metric ?: alarmData?.metricName
+		 String comparisonOperator = params.comparisonOperator ?: alarmData?.comparisonOperator
+		 String threshold = params.threshold ?: alarmData?.threshold
+		 String period = AwsCloudWatchService.choosePeriod(params, alarmData)
+		 String evaluationPeriods = AwsCloudWatchService.chooseEvaluationPeriods(params, alarmData)
+		 
+		 def map1 = [
+				 evaluationPeriods: evaluationPeriods,
+				 period: period,
+				 threshold: threshold,
+				 comparisonOperators: AlarmData.ComparisonOperator.values(),
+				 dimensions: dimensions,
+				 metric: metric
+				 ]
+	 
+		 map1
+	}
+}
+			
     private String chooseNamespace(Map<String, String> params, AlarmData alarmData) {
         params.namespace ?: alarmData?.namespace ?: configService.defaultMetricNamespace
     }
 
-    private Serializable choosePeriod(Map<String, String> params, AlarmData alarmData) {
+    public static Serializable choosePeriod(Map<String, String> params, AlarmData alarmData) {
         params.period ?: alarmData?.period ?: '60'
     }
 
-    private Serializable chooseEvaluationPeriods(Map<String, String> params, AlarmData alarmData) {
+    public static Serializable chooseEvaluationPeriods(Map<String, String> params, AlarmData alarmData) {
         params.evaluationPeriods ?: alarmData?.evaluationPeriods ?: '5'
     }
 
-    private Serializable chooseStatistic(Map<String, String> params, AlarmData alarmData) {
+    public static Serializable chooseStatistic(Map<String, String> params, AlarmData alarmData) {
         params.statistic ?: alarmData?.statistic ?: AlarmData.Statistic.default.name()
     }
 }
