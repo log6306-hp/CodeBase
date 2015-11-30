@@ -41,105 +41,111 @@ import com.netflix.asgard.userdata.PropertiesUserDataProvider
 import groovy.io.FileType
 
 beans = {
-    serviceInitLoggingBeanPostProcessor(ServiceInitLoggingBeanPostProcessor)
+	
+	xmlns aop:"http://www.springframework.org/schema/aop"
+	aspectBean(com.test.aop.LoggerInterceptor)
+	aop.config("proxy-target-class":true) {
+	}
+	
+	serviceInitLoggingBeanPostProcessor(ServiceInitLoggingBeanPostProcessor)
 
-    threadScheduler(ThreadScheduler, ref('configService'))
+	threadScheduler(ThreadScheduler, ref('configService'))
 
-    List<Region> limitedRegions = Region.limitedRegions ?: Region.values()
-    cachedMapBuilder(CachedMapBuilder, ref('threadScheduler'), limitedRegions)
+	List<Region> limitedRegions = Region.limitedRegions ?: Region.values()
+	cachedMapBuilder(CachedMapBuilder, ref('threadScheduler'), limitedRegions)
 
-    caches(Caches, ref('cachedMapBuilder'), ref('configService'))
+	caches(Caches, ref('cachedMapBuilder'), ref('configService'))
 
-    deprecatedServerNames(DeprecatedServerNames) {
-        it.autowire = "byName"
-    }
+	deprecatedServerNames(DeprecatedServerNames) {
+		it.autowire = "byName"
+	}
 
-    eurekaClientHolder(EurekaClientHolder) {
-        it.autowire = "byName"
-    }
+	eurekaClientHolder(EurekaClientHolder) {
+		it.autowire = "byName"
+	}
 
-    objectMapper(ObjectMapper)
+	objectMapper(ObjectMapper)
 
-    propertiesUserDataProvider(PropertiesUserDataProvider) { bean ->
-        bean.lazyInit = true
-    }
+	propertiesUserDataProvider(PropertiesUserDataProvider) { bean ->
+		bean.lazyInit = true
+	}
 
-    defaultUserDataProvider(DefaultUserDataProvider) { bean ->
-        bean.lazyInit = true
-    }
+	defaultUserDataProvider(DefaultUserDataProvider) { bean ->
+		bean.lazyInit = true
+	}
 
-    defaultAdvancedUserDataProvider(DefaultAdvancedUserDataProvider) { bean ->
-        bean.lazyInit = true
-    }
+	defaultAdvancedUserDataProvider(DefaultAdvancedUserDataProvider) { bean ->
+		bean.lazyInit = true
+	}
 
-    noOpAsgAnalyzer(NoOpAsgAnalyzer)
+	noOpAsgAnalyzer(NoOpAsgAnalyzer)
 
-    deploymentActivitiesImpl(DeploymentActivitiesImpl) {
-        it.autowire = "byName"
-        it.lazyInit = true
-    }
+	deploymentActivitiesImpl(DeploymentActivitiesImpl) {
+		it.autowire = "byName"
+		it.lazyInit = true
+	}
 
-    csiScheduledAnalysisFactory(CsiScheduledAnalysisFactory)
+	csiScheduledAnalysisFactory(CsiScheduledAnalysisFactory)
 
-    snsTaskFinishedListener(SnsTaskFinishedListener) { bean ->
-        bean.lazyInit = true
-    }
+	snsTaskFinishedListener(SnsTaskFinishedListener) { bean ->
+		bean.lazyInit = true
+	}
 
-    if (application.config.plugin?.authenticationProvider == 'oneLoginAuthenticationProvider') {
-        oneLoginAuthenticationProvider(OneLoginAuthenticationProvider) { bean ->
-            bean.lazyInit = true
-        }
-    }
+	if (application.config.plugin?.authenticationProvider == 'oneLoginAuthenticationProvider') {
+		oneLoginAuthenticationProvider(OneLoginAuthenticationProvider) { bean ->
+			bean.lazyInit = true
+		}
+	}
 
-    if (application.config.plugin?.userDataProvider == 'localFileUserDataProvider') {
-      localFileUserDataProvider(LocalFileUserDataProvider) { bean ->
-        bean.lazyInit = true
-      }
-    }
+	if (application.config.plugin?.userDataProvider == 'localFileUserDataProvider') {
+	  localFileUserDataProvider(LocalFileUserDataProvider) { bean ->
+		bean.lazyInit = true
+	  }
+	}
 
-    if (application.config.plugin?.advancedUserDataProvider == 'netflixAdvancedUserDataProvider') {
-        netflixAdvancedUserDataProvider(NetflixAdvancedUserDataProvider) { bean ->
-            bean.lazyInit = true
-        }
-    }
+	if (application.config.plugin?.advancedUserDataProvider == 'netflixAdvancedUserDataProvider') {
+		netflixAdvancedUserDataProvider(NetflixAdvancedUserDataProvider) { bean ->
+			bean.lazyInit = true
+		}
+	}
 
-    if (application.config.plugin?.asgAnalyzer == 'csiAsgAnalyzer') {
-        csiAsgAnalyzer(CsiAsgAnalyzer) { bean ->
-            bean.lazyInit = true
-        }
-    }
+	if (application.config.plugin?.asgAnalyzer == 'csiAsgAnalyzer') {
+		csiAsgAnalyzer(CsiAsgAnalyzer) { bean ->
+			bean.lazyInit = true
+		}
+	}
 
-    restrictEditAuthorizationProvider(RestrictEditAuthorizationProvider) { bean ->
-        bean.lazyInit = true
-    }
+	restrictEditAuthorizationProvider(RestrictEditAuthorizationProvider) { bean ->
+		bean.lazyInit = true
+	}
 
-    restrictBrowserAuthorizationProvider(RestrictBrowserAuthorizationProvider)
+	restrictBrowserAuthorizationProvider(RestrictBrowserAuthorizationProvider)
 
-    if (application.config.spinnaker?.gateUrl) {
-        applicationService(
-            SpinnakerApplicationService,
-            application.config.spinnaker.gateUrl as String,
-            application.config.cloud.accountName as String
-        ) { bean ->
-            bean.lazyInit = true
-        }
-    } else {
-        applicationService(SimpleDBApplicationService) { bean ->
-            bean.lazyInit = true
-        }
-    }
+	if (application.config.spinnaker?.gateUrl) {
+		applicationService(
+			SpinnakerApplicationService,
+			application.config.spinnaker.gateUrl as String,
+			application.config.cloud.accountName as String
+		) { bean ->
+			bean.lazyInit = true
+		}
+	} else {
+		applicationService(SimpleDBApplicationService) { bean ->
+			bean.lazyInit = true
+		}
+	}
 
 
-    //**** Plugin behavior
+	//**** Plugin behavior
 
-    xmlns lang:'http://www.springframework.org/schema/lang'
+	xmlns lang:'http://www.springframework.org/schema/lang'
 
-    File pluginDir = new File("${application.config.asgardHome}/plugins/")
-    if (pluginDir.exists()) {
-        pluginDir.eachFileMatch(FileType.FILES, ~/.*\.groovy/) { File plugin ->
-            String beanName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_CAMEL, plugin.name.replace('.groovy', ''))
-            lang.groovy(id: beanName, 'script-source': "file:${application.config.asgardHome}/plugins/${plugin.name}",
-                    'refresh-check-delay': application.config.plugin.refreshDelay?: -1)
-        }
-    }
+	File pluginDir = new File("${application.config.asgardHome}/plugins/")
+	if (pluginDir.exists()) {
+		pluginDir.eachFileMatch(FileType.FILES, ~/.*\.groovy/) { File plugin ->
+			String beanName = CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_CAMEL, plugin.name.replace('.groovy', ''))
+			lang.groovy(id: beanName, 'script-source': "file:${application.config.asgardHome}/plugins/${plugin.name}",
+					'refresh-check-delay': application.config.plugin.refreshDelay?: -1)
+		}
+	}
 }
